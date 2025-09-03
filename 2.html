@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Digging Simulation</title>
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: #cce0ff; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+const { Engine, Render, Runner, Bodies, Body, World, Events, Mouse } = Matter;
+
+// engine & world
+const engine = Engine.create();
+const world = engine.world;
+world.gravity.y = 1;
+
+// renderer
+const width = window.innerWidth;
+const height = window.innerHeight;
+const render = Render.create({
+  element: document.body,
+  engine: engine,
+  options: {
+    width,
+    height,
+    wireframes: false,
+    background: "#cce0ff"
+  }
+});
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+// boundaries
+const wallThickness = 50;
+World.add(world, [
+  Bodies.rectangle(width/2, height+wallThickness/2, width, wallThickness, { isStatic: true }),
+  Bodies.rectangle(width/2, -wallThickness/2, width, wallThickness, { isStatic: true }),
+  Bodies.rectangle(-wallThickness/2, height/2, wallThickness, height, { isStatic: true }),
+  Bodies.rectangle(width+wallThickness/2, height/2, wallThickness, height, { isStatic: true })
+]);
+
+// soil blocks (5px grid across bottom third of screen)
+const blocks = [];
+const blockSize = 15;
+const groundHeight = Math.floor(height / 3);
+for (let y = height - groundHeight; y < height - blockSize; y += blockSize) {
+  for (let x = blockSize; x < width - blockSize; x += blockSize) {
+    const block = Bodies.rectangle(x, y, blockSize, blockSize, {
+      restitution: 0,
+      friction: 0.9,
+      frictionStatic: 1,
+      density: 0.002,
+      render: { fillStyle: "#8b5a2b" }
+    });
+    blocks.push(block);
+  }
+}
+World.add(world, blocks);
+
+// spade (scoop + handle)
+const scoop = Bodies.rectangle(0, 0, 100, 20, { render: { fillStyle: "#aaaaaa" } });
+const leftSide = Bodies.rectangle(-50, -10, 10, 40, { render: { fillStyle: "#aaaaaa" } });
+const rightSide = Bodies.rectangle(50, -10, 10, 40, { render: { fillStyle: "#aaaaaa" } });
+const handle = Bodies.rectangle(0, -80, 20, 100, { render: { fillStyle: "#777777" } });
+
+const spade = Body.create({
+  parts: [scoop, leftSide, rightSide, handle],
+  friction: 0.9,
+  frictionStatic: 1.0,
+  restitution: 0,
+  density: 0.01,
+  inertia: Infinity // prevents unwanted spinning
+});
+Body.setPosition(spade, { x: width/2, y: height/4 });
+World.add(world, spade);
+
+// mouse control
+const mouse = Mouse.create(render.canvas);
+render.mouse = mouse;
+
+// spade follows mouse (locked upright, only slight tilt)
+Events.on(engine, "beforeUpdate", () => {
+  const target = mouse.position;
+  const dx = target.x - spade.position.x;
+  const dy = target.y - spade.position.y;
+
+  Body.setVelocity(spade, { x: dx * 0.3, y: dy * 0.3 });
+
+  // keep upright with small tilt in direction of movement
+  if (Math.abs(dx) + Math.abs(dy) > 0.1) {
+    const angle = Math.atan2(dy, dx) * 0.2; // reduced tilt
+    Body.setAngle(spade, angle);
+  }
+});
+
+// collapse behavior — unsupported blocks fall
+Events.on(engine, "afterUpdate", () => {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!b.isSleeping) {
+      const support = blocks.some(other => {
+        if (other === b) return false;
+        const dx = Math.abs(other.position.x - b.position.x);
+        const dy = other.position.y - b.position.y;
+        return dx < blockSize * 0.6 && dy > 0 && dy < blockSize * 1.2;
+      });
+      if (!support) {
+        Body.applyForce(b, b.position, { x: 0, y: 0.0003 });
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>
